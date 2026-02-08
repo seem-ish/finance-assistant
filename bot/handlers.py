@@ -15,6 +15,11 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
+from services.bill_tracker import (
+    format_bills_list,
+    format_upcoming_reminder,
+    get_upcoming_bills,
+)
 from services.exceptions import DuplicateTransactionError, InvalidDataError
 
 logger = logging.getLogger(__name__)
@@ -132,12 +137,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "📚 *Available Commands*\n\n"
         "*Add Expenses:*\n"
         "`/add <amount> <description>`\n"
-        "Example: `/add 25 Whole Foods` → auto-detects Groceries\n"
-        "Example: `/add 15 Chipotle lunch` → auto-detects Dining\n\n"
+        "Example: `/add 25 Whole Foods` → auto-detects Groceries\n\n"
         "*View Spending:*\n"
         "`/today` — Today's spending\n"
         "`/week` — This week's spending\n"
         "`/month` — This month's spending\n\n"
+        "*Bills:*\n"
+        "`/bills` — View all your bills\n"
+        "`/upcoming` — Bills due in next 7 days\n"
+        "`/addbill <name> <amount> <due_day>`\n"
+        "`/delbill <name>` — Remove a bill\n\n"
         "💡 Category is auto-detected from your description",
         parse_mode=ParseMode.MARKDOWN,
     )
@@ -274,6 +283,147 @@ async def month_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(
             "❌ Couldn't fetch this month's data. Please try again later."
         )
+
+
+async def bills_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /bills — show all active bills."""
+    settings = context.bot_data["settings"]
+    sheets = context.bot_data["sheets"]
+    user = get_authorized_user(update, settings)
+    if user is None:
+        return
+
+    try:
+        df = sheets.get_bills(active_only=True, user=user)
+        message = format_bills_list(df, settings.currency_symbol)
+        await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        logger.error("Error fetching bills: %s", e)
+        await update.message.reply_text("❌ Couldn't fetch bills. Please try again later.")
+
+
+async def upcoming_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /upcoming — show bills due in the next 7 days."""
+    settings = context.bot_data["settings"]
+    sheets = context.bot_data["sheets"]
+    user = get_authorized_user(update, settings)
+    if user is None:
+        return
+
+    try:
+        bills = get_upcoming_bills(sheets, user=user, days_ahead=7)
+        message = format_upcoming_reminder(bills, settings.currency_symbol)
+        await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        logger.error("Error fetching upcoming bills: %s", e)
+        await update.message.reply_text(
+            "❌ Couldn't fetch upcoming bills. Please try again later."
+        )
+
+
+async def addbill_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /addbill — add a recurring bill.
+
+    Format: /addbill <name> <amount> <due_day>
+    Example: /addbill Netflix 15.99 15
+    """
+    settings = context.bot_data["settings"]
+    sheets = context.bot_data["sheets"]
+    categorizer = context.bot_data.get("categorizer")
+    user = get_authorized_user(update, settings)
+    if user is None:
+        return
+
+    args = context.args or []
+    if len(args) < 3:
+        await update.message.reply_text(
+            "❌ Usage: `/addbill <name> <amount> <due_day>`\n\n"
+            "Example: `/addbill Netflix 15.99 15`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    name = args[0]
+    try:
+        amount = float(args[1])
+        due_day = int(args[2])
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Amount must be a number and due day must be an integer.\n\n"
+            "Example: `/addbill Netflix 15.99 15`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    # Auto-detect category from bill name
+    if categorizer:
+        category = categorizer.categorize(name)
+    else:
+        category = "Other"
+
+    try:
+        bill_id = sheets.add_bill(
+            name=name,
+            amount=amount,
+            due_day=due_day,
+            frequency="monthly",
+            category=category,
+            user=user,
+        )
+        currency = settings.currency_symbol
+        await update.message.reply_text(
+            f"✅ Added bill: {name} — {currency}{amount:,.2f} "
+            f"due on day {due_day} (monthly)\n"
+            f"🆔 {bill_id}"
+        )
+    except InvalidDataError as e:
+        await update.message.reply_text(f"❌ {e}")
+    except Exception as e:
+        logger.error("Error adding bill: %s", e)
+        await update.message.reply_text("❌ Something went wrong. Please try again.")
+
+
+async def delbill_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /delbill — delete a bill by name.
+
+    Format: /delbill <name>
+    Example: /delbill Netflix
+    """
+    settings = context.bot_data["settings"]
+    sheets = context.bot_data["sheets"]
+    user = get_authorized_user(update, settings)
+    if user is None:
+        return
+
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "❌ Usage: `/delbill <name>`\n\n"
+            "Example: `/delbill Netflix`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    name = " ".join(args)
+
+    # Find the bill by name
+    df = sheets.get_bills(user=user)
+    match = df[df["name"].str.lower() == name.lower()]
+
+    if match.empty:
+        await update.message.reply_text(
+            f"❌ No bill found with name '{name}'.\n\n"
+            f"Use /bills to see your current bills."
+        )
+        return
+
+    bill_id = match.iloc[0]["id"]
+    try:
+        sheets.delete_bill(bill_id)
+        await update.message.reply_text(f"✅ Deleted bill: {name}")
+    except Exception as e:
+        logger.error("Error deleting bill: %s", e)
+        await update.message.reply_text("❌ Couldn't delete the bill. Please try again.")
 
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

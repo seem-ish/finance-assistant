@@ -12,7 +12,10 @@ import pytest
 
 from bot.handlers import (
     add_command,
+    addbill_command,
+    bills_command,
     calculate_summary,
+    delbill_command,
     get_authorized_user,
     get_user_name,
     month_command,
@@ -343,3 +346,115 @@ class TestMonthCommand:
         today = date.today()
         assert call_kwargs["start_date"] == date(today.year, today.month, 1)
         assert call_kwargs["end_date"] == today
+
+
+# =========================================================================
+# /bills handler
+# =========================================================================
+
+
+class TestBillsCommand:
+
+    @pytest.mark.asyncio
+    async def test_with_bills(self, update_user1, mock_context):
+        mock_context.bot_data["sheets"].get_bills.return_value = pd.DataFrame(
+            [
+                {"name": "Netflix", "amount": 15.99, "due_day": 15,
+                 "frequency": "monthly", "auto_pay": True},
+            ]
+        )
+
+        await bills_command(update_user1, mock_context)
+
+        response = update_user1.message.reply_text.call_args[0][0]
+        assert "Netflix" in response
+        assert "$15.99" in response
+
+    @pytest.mark.asyncio
+    async def test_empty_bills(self, update_user1, mock_context):
+        mock_context.bot_data["sheets"].get_bills.return_value = pd.DataFrame()
+
+        await bills_command(update_user1, mock_context)
+
+        response = update_user1.message.reply_text.call_args[0][0]
+        assert "No bills" in response
+
+
+# =========================================================================
+# /addbill handler
+# =========================================================================
+
+
+class TestAddBillCommand:
+
+    @pytest.mark.asyncio
+    async def test_success(self, update_user1, mock_context):
+        mock_context.args = ["Netflix", "15.99", "15"]
+        mock_context.bot_data["sheets"].add_bill.return_value = "bill123"
+
+        await addbill_command(update_user1, mock_context)
+
+        mock_context.bot_data["sheets"].add_bill.assert_called_once()
+        call_kwargs = mock_context.bot_data["sheets"].add_bill.call_args[1]
+        assert call_kwargs["name"] == "Netflix"
+        assert call_kwargs["amount"] == 15.99
+        assert call_kwargs["due_day"] == 15
+
+        response = update_user1.message.reply_text.call_args[0][0]
+        assert "✅" in response
+        assert "Netflix" in response
+
+    @pytest.mark.asyncio
+    async def test_invalid_format(self, update_user1, mock_context):
+        mock_context.args = ["Netflix"]  # missing amount and due_day
+
+        await addbill_command(update_user1, mock_context)
+
+        mock_context.bot_data["sheets"].add_bill.assert_not_called()
+        response = update_user1.message.reply_text.call_args[0][0]
+        assert "❌" in response
+
+    @pytest.mark.asyncio
+    async def test_unauthorized_silent(self, update_stranger, mock_context):
+        mock_context.args = ["Netflix", "15.99", "15"]
+
+        await addbill_command(update_stranger, mock_context)
+
+        update_stranger.message.reply_text.assert_not_called()
+
+
+# =========================================================================
+# /delbill handler
+# =========================================================================
+
+
+class TestDelBillCommand:
+
+    @pytest.mark.asyncio
+    async def test_success(self, update_user1, mock_context):
+        mock_context.args = ["Netflix"]
+        mock_context.bot_data["sheets"].get_bills.return_value = pd.DataFrame(
+            [{"id": "bill123", "name": "Netflix", "amount": 15.99}]
+        )
+        mock_context.bot_data["sheets"].delete_bill.return_value = True
+
+        await delbill_command(update_user1, mock_context)
+
+        mock_context.bot_data["sheets"].delete_bill.assert_called_once_with("bill123")
+        response = update_user1.message.reply_text.call_args[0][0]
+        assert "✅" in response
+        assert "Netflix" in response
+
+    @pytest.mark.asyncio
+    async def test_not_found(self, update_user1, mock_context):
+        mock_context.args = ["NonExistent"]
+        mock_context.bot_data["sheets"].get_bills.return_value = pd.DataFrame(
+            [{"id": "bill123", "name": "Netflix", "amount": 15.99}]
+        )
+
+        await delbill_command(update_user1, mock_context)
+
+        mock_context.bot_data["sheets"].delete_bill.assert_not_called()
+        response = update_user1.message.reply_text.call_args[0][0]
+        assert "❌" in response
+        assert "No bill found" in response

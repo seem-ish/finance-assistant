@@ -11,10 +11,14 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
 from bot.handlers import (
     add_command,
+    addbill_command,
+    bills_command,
+    delbill_command,
     help_command,
     month_command,
     start_command,
     today_command,
+    upcoming_command,
     unknown_command,
     unknown_text,
     week_command,
@@ -58,6 +62,10 @@ def main() -> None:
     app.add_handler(CommandHandler("today", today_command))
     app.add_handler(CommandHandler("week", week_command))
     app.add_handler(CommandHandler("month", month_command))
+    app.add_handler(CommandHandler("bills", bills_command))
+    app.add_handler(CommandHandler("upcoming", upcoming_command))
+    app.add_handler(CommandHandler("addbill", addbill_command))
+    app.add_handler(CommandHandler("delbill", delbill_command))
 
     # Catch-all handlers (must be registered last)
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
