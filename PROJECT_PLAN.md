@@ -71,54 +71,87 @@ A personal finance assistant with a Telegram bot for daily interactions and a St
 - Shared expenses view and splitting
 - Combined household dashboard
 
+### 7. Gmail Integration
+- Daily/weekly/monthly summaries mirrored to email
+- Bill payment reminders via email
+- Budget alerts via email
+- HTML-formatted emails with tables and charts
+
+### 8. Google Calendar Integration
+- Bill due dates as recurring calendar events
+- Weekly/monthly budget review reminders
+- Daily/weekly/monthly summary schedule markers
+- Color-coded by type (bills, reviews, summaries)
+- Auto-update when bills change
+
+### 9. Telegram Financial Q&A
+- Natural language spending queries ("how much on dining?")
+- Period comparisons ("am I spending more than last month?")
+- Budget status queries ("how's my grocery budget?")
+- Bill info ("when is rent due?")
+- Savings insights ("how can I save more?" with actionable suggestions)
+
 ---
 
 ## Development Phases
 
-### Phase 1: Foundation (Weeks 1-2) - LOCAL DEVELOPMENT
-**Goal**: Working bot + basic dashboard running locally
+**Workflow:** Build → Write tests → Claude tests + you test → Green light → Push to GitHub → Next phase
 
-#### Week 1: Core Setup
-- [x] Project structure and dependencies
-- [ ] Google Cloud project setup (Sheets API, Drive API)
-- [ ] Google Sheets database schema design
-- [ ] Google Sheets connection and CRUD operations
-- [ ] Basic Telegram bot with `/start`, `/help`, `/add` commands
-- [ ] Manual expense entry via bot
+### Phase 1: Google Sheets Service Layer
+- [ ] `services/sheets.py` — CRUD operations, auto-create sheets
+- [ ] `tests/test_sheets.py`
 
-#### Week 2: Dashboard & Parsing
-- [ ] Streamlit dashboard - overview page
-- [ ] Spending charts (category pie, daily bar, trend line)
-- [ ] Basic PDF statement parser (start with 1-2 bank formats)
-- [ ] CSV import support
-- [ ] Bill tracking data model and basic reminders
+### Phase 2: Basic Telegram Bot
+- [ ] `bot/main.py`, `bot/handlers.py` — `/start`, `/help`, `/add`, `/today`, `/week`, `/month`
+- [ ] `tests/test_bot.py`
 
-### Phase 2: Intelligence (Week 3) - ENHANCE LOCALLY
-**Goal**: Smart features and automated summaries
+### Phase 3: Transaction Categorizer
+- [ ] `services/categorizer.py` — keyword matching, fuzzy matching
+- [ ] `tests/test_categorizer.py`
 
-- [ ] Automated daily/weekly/monthly summaries via Telegram
-- [ ] Budget tracking and alerts
-- [ ] Spending pattern analysis
-- [ ] Dual-user support (separate + shared views)
-- [ ] Transaction categorization improvements
-- [ ] Bill reminder automation
+### Phase 4: Streamlit Dashboard
+- [ ] `dashboard/app.py` — overview, charts, user switcher
+- [ ] `tests/test_dashboard.py`
 
-### Phase 3: Deployment (Week 4+) - GOOGLE CLOUD
-**Goal**: Running 24/7 on Google Cloud
+### Phase 5: CSV Statement Parser
+- [ ] `parsers/base.py`, `parsers/csv_parser.py`
+- [ ] `tests/test_csv_parser.py`
 
-- [ ] Dockerize the application
-- [ ] Deploy Telegram bot to Cloud Run
-- [ ] Deploy Streamlit dashboard to Cloud Run
-- [ ] Set up Cloud Scheduler for automated tasks
-- [ ] Configure Google Drive for statement storage
-- [ ] Cost optimization (stay within $10/month)
+### Phase 6: PDF Statement Parser
+- [ ] `parsers/pdf_parser.py`
+- [ ] `tests/test_pdf_parser.py`
 
-### Phase 4: Polish (Ongoing)
-- [ ] Add more bank statement formats
-- [ ] Credit card optimization insights
-- [ ] Receipt photo parsing (OCR)
-- [ ] Export reports as PDF
-- [ ] Shared expense splitting logic
+### Phase 7: Bill Tracking & Reminders
+- [ ] `services/bills.py`, bot commands `/bills`, `/addbill`, `/paybill`
+- [ ] `tests/test_bills.py`
+
+### Phase 8: Budget Tracking & Alerts
+- [ ] `services/insights.py`, bot commands `/budget`, `/setbudget`
+- [ ] `tests/test_insights.py`
+
+### Phase 9: Automated Summaries (Telegram)
+- [ ] `bot/summaries.py` — daily/weekly/monthly via APScheduler
+- [ ] `tests/test_summaries.py`
+
+### Phase 10: Gmail Integration
+- [ ] `services/gmail.py` — mirror all summaries + reminders to email
+- [ ] `tests/test_gmail.py`
+
+### Phase 11: Google Calendar Integration
+- [ ] `services/calendar.py` — bill dates, review reminders, summary schedule
+- [ ] `tests/test_calendar.py`
+
+### Phase 12: Telegram Financial Q&A
+- [ ] `bot/qa.py` — natural language queries, savings suggestions
+- [ ] `tests/test_qa.py`
+
+### Phase 13: Dual-User & Shared Expenses
+- [ ] Shared expense splitting, `/shared` command, combined dashboard view
+- [ ] `tests/test_dual_user.py`
+
+### Phase 14: Google Cloud Deployment
+- [ ] Dockerfile, Cloud Run configs, Cloud Scheduler
+- [ ] Stay within $10/month budget
 
 ---
 
@@ -195,6 +228,8 @@ Before you can run the project, you'll need to set up:
 - [ ] Create a Google Cloud project at https://console.cloud.google.com
 - [ ] Enable the Google Sheets API
 - [ ] Enable the Google Drive API
+- [ ] Enable the Gmail API (needed for Phase 10)
+- [ ] Enable the Google Calendar API (needed for Phase 11)
 - [ ] Create a Service Account
 - [ ] Download the Service Account JSON key file
 - [ ] Save it as `config/google_credentials.json`
