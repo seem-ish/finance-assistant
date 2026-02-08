@@ -51,12 +51,15 @@ def get_user_name(user: str, settings) -> str:
 def parse_add_command(args: list[str]) -> Optional[dict]:
     """Parse /add command arguments.
 
-    Expected: /add <amount> <category> <description...>
-    Example:  /add 25.50 groceries Whole Foods organic milk
+    Supports two formats:
+        /add <amount> <category> <description...>   — explicit category
+        /add <amount> <description...>               — auto-categorize
 
-    Returns dict with amount, category, description — or None if invalid.
+    Returns dict with amount, description, and optionally category.
+    If category is not provided, it will be None (caller should auto-detect).
+    Returns None if parsing fails entirely.
     """
-    if len(args) < 3:
+    if len(args) < 2:
         return None
 
     try:
@@ -64,10 +67,13 @@ def parse_add_command(args: list[str]) -> Optional[dict]:
     except ValueError:
         return None
 
-    category = args[1].capitalize()
-    description = " ".join(args[2:])
+    # The rest is either "category description..." or just "description..."
+    # We'll return all remaining text as description, and let the caller
+    # decide if the second word is a known category or part of description.
+    remaining = args[1:]
+    description = " ".join(remaining)
 
-    return {"amount": amount, "category": category, "description": description}
+    return {"amount": amount, "category": None, "description": description}
 
 
 def calculate_summary(df, currency_symbol: str) -> str:
@@ -125,21 +131,28 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(
         "📚 *Available Commands*\n\n"
         "*Add Expenses:*\n"
-        "`/add <amount> <category> <description>`\n"
-        "Example: `/add 25 groceries Whole Foods`\n\n"
+        "`/add <amount> <description>`\n"
+        "Example: `/add 25 Whole Foods` → auto-detects Groceries\n"
+        "Example: `/add 15 Chipotle lunch` → auto-detects Dining\n\n"
         "*View Spending:*\n"
         "`/today` — Today's spending\n"
         "`/week` — This week's spending\n"
         "`/month` — This month's spending\n\n"
-        "💡 Categories are auto-capitalized",
+        "💡 Category is auto-detected from your description",
         parse_mode=ParseMode.MARKDOWN,
     )
 
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /add — add a new expense."""
+    """Handle /add — add a new expense.
+
+    Supports:
+        /add 25 groceries Whole Foods   — explicit category
+        /add 25 Whole Foods             — auto-categorize from description
+    """
     settings = context.bot_data["settings"]
     sheets = context.bot_data["sheets"]
+    categorizer = context.bot_data.get("categorizer")
     user = get_authorized_user(update, settings)
     if user is None:
         return
@@ -148,24 +161,37 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if parsed is None:
         await update.message.reply_text(
             "❌ Invalid format\\. Use:\n"
-            "`/add <amount> <category> <description>`\n\n"
-            "Example: `/add 25.50 groceries Whole Foods`",
+            "`/add <amount> <description>`\n"
+            "or `/add <amount> <category> <description>`\n\n"
+            "Example: `/add 25 Whole Foods`\n"
+            "Example: `/add 25 groceries Whole Foods`",
             parse_mode=ParseMode.MARKDOWN_V2,
         )
         return
 
+    description = parsed["description"]
+
+    # Auto-categorize: check if the description matches any category keyword
+    if categorizer:
+        category = categorizer.categorize(description)
+        icon = categorizer.get_icon(category)
+    else:
+        category = "Other"
+        icon = "📦"
+
     try:
         transaction_id = sheets.add_transaction(
             amount=parsed["amount"],
-            category=parsed["category"],
-            description=parsed["description"],
+            category=category,
+            description=description,
             user=user,
             source="telegram",
         )
         currency = settings.currency_symbol
+        auto_tag = " (auto)" if parsed["category"] is None else ""
         await update.message.reply_text(
-            f"✅ Added: {currency}{parsed['amount']:.2f} — {parsed['category']}\n"
-            f"📝 {parsed['description']}\n"
+            f"✅ Added: {currency}{parsed['amount']:.2f} — {icon} {category}{auto_tag}\n"
+            f"📝 {description}\n"
             f"🆔 {transaction_id}"
         )
 

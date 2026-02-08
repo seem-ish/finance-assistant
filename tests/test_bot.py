@@ -65,12 +65,22 @@ def update_stranger():
 
 
 @pytest.fixture
-def mock_context(mock_settings):
-    """Mock bot context with settings and sheets."""
+def mock_categorizer():
+    """Mock Categorizer that returns predictable results."""
+    cat = MagicMock()
+    cat.categorize.return_value = "Groceries"
+    cat.get_icon.return_value = "🛒"
+    return cat
+
+
+@pytest.fixture
+def mock_context(mock_settings, mock_categorizer):
+    """Mock bot context with settings, sheets, and categorizer."""
     ctx = MagicMock()
     ctx.bot_data = {
         "settings": mock_settings,
         "sheets": MagicMock(),
+        "categorizer": mock_categorizer,
     }
     ctx.args = []
     return ctx
@@ -107,29 +117,34 @@ class TestAuthorization:
 class TestParseAddCommand:
 
     def test_valid_simple(self):
-        result = parse_add_command(["25", "groceries", "Whole", "Foods"])
+        result = parse_add_command(["25", "Whole", "Foods"])
         assert result == {
             "amount": 25.0,
-            "category": "Groceries",
+            "category": None,
             "description": "Whole Foods",
         }
 
     def test_valid_decimal(self):
-        result = parse_add_command(["25.50", "dining", "Chipotle", "lunch"])
+        result = parse_add_command(["25.50", "Chipotle", "lunch"])
         assert result["amount"] == 25.50
-        assert result["category"] == "Dining"
+        assert result["category"] is None
         assert result["description"] == "Chipotle lunch"
 
     def test_long_description(self):
         result = parse_add_command(
-            ["100", "shopping", "Amazon", "office", "supplies", "and", "books"]
+            ["100", "Amazon", "office", "supplies", "and", "books"]
         )
         assert result["description"] == "Amazon office supplies and books"
 
-    def test_missing_description(self):
-        assert parse_add_command(["25", "groceries"]) is None
+    def test_single_word_description(self):
+        result = parse_add_command(["25", "Starbucks"])
+        assert result == {
+            "amount": 25.0,
+            "category": None,
+            "description": "Starbucks",
+        }
 
-    def test_missing_category(self):
+    def test_missing_description(self):
         assert parse_add_command(["25"]) is None
 
     def test_empty_args(self):
@@ -193,12 +208,12 @@ class TestAddCommand:
 
     @pytest.mark.asyncio
     async def test_success(self, update_user1, mock_context):
-        mock_context.args = ["25.50", "groceries", "Whole", "Foods"]
+        mock_context.args = ["25.50", "Whole", "Foods"]
         mock_context.bot_data["sheets"].add_transaction.return_value = "abc12345"
 
         await add_command(update_user1, mock_context)
 
-        # Sheets called correctly
+        # Sheets called with auto-categorized category
         mock_context.bot_data["sheets"].add_transaction.assert_called_once_with(
             amount=25.50,
             category="Groceries",
@@ -206,15 +221,20 @@ class TestAddCommand:
             user="user1",
             source="telegram",
         )
+        # Categorizer was called with the description
+        mock_context.bot_data["categorizer"].categorize.assert_called_once_with(
+            "Whole Foods"
+        )
         # Response sent
         response = update_user1.message.reply_text.call_args[0][0]
         assert "✅" in response
         assert "$25.50" in response
         assert "abc12345" in response
+        assert "Groceries" in response
 
     @pytest.mark.asyncio
     async def test_invalid_format(self, update_user1, mock_context):
-        mock_context.args = ["25", "groceries"]  # missing description
+        mock_context.args = ["25"]  # missing description
 
         await add_command(update_user1, mock_context)
 
@@ -224,7 +244,7 @@ class TestAddCommand:
 
     @pytest.mark.asyncio
     async def test_duplicate(self, update_user1, mock_context):
-        mock_context.args = ["25", "groceries", "Whole", "Foods"]
+        mock_context.args = ["25", "Whole", "Foods"]
         mock_context.bot_data["sheets"].add_transaction.side_effect = (
             DuplicateTransactionError()
         )
@@ -237,7 +257,7 @@ class TestAddCommand:
 
     @pytest.mark.asyncio
     async def test_unauthorized_silent(self, update_stranger, mock_context):
-        mock_context.args = ["25", "groceries", "test"]
+        mock_context.args = ["25", "Whole", "Foods"]
 
         await add_command(update_stranger, mock_context)
 

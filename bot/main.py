@@ -20,6 +20,7 @@ from bot.handlers import (
     week_command,
 )
 from config.settings import get_settings
+from services.categorizer import Categorizer
 from services.sheets import GoogleSheetsService
 
 logger = logging.getLogger(__name__)
@@ -41,9 +42,14 @@ def main() -> None:
     # Create bot application
     app = Application.builder().token(settings.telegram_bot_token).build()
 
+    # Initialize categorizer
+    categorizer = Categorizer(sheets)
+    logger.info("Transaction categorizer initialized")
+
     # Store shared objects so handlers can access them via context.bot_data
     app.bot_data["settings"] = settings
     app.bot_data["sheets"] = sheets
+    app.bot_data["categorizer"] = categorizer
 
     # Register command handlers
     app.add_handler(CommandHandler("start", start_command))
