@@ -139,7 +139,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "📚 *Available Commands*\n\n"
         "*Add Expenses:*\n"
         "`/add <amount> <description>`\n"
-        "Example: `/add 25 Whole Foods` → auto-detects Groceries\n\n"
+        "Example: `/add 25 Whole Foods` → auto-detects Groceries\n"
+        "`/delete <id>` — Remove a transaction\n\n"
         "*View Spending:*\n"
         "`/today` — Today's spending\n"
         "`/week` — This week's spending\n"
@@ -684,6 +685,44 @@ async def synccalendar_command(
     except Exception as e:
         logger.error("Error in Calendar sync: %s", e)
         await update.message.reply_text("❌ Calendar sync failed. Check logs for details.")
+
+
+async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /delete — delete a transaction by ID.
+
+    Format: /delete <transaction_id>
+    Example: /delete abc12345
+    """
+    settings = context.bot_data["settings"]
+    sheets = context.bot_data["sheets"]
+    user = get_authorized_user(update, settings)
+    if user is None:
+        return
+
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "❌ Usage: `/delete <transaction_id>`\n\n"
+            "The transaction ID is shown when you add an expense with /add.\n"
+            "Use /today, /week, or /month to find transactions.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    transaction_id = args[0]
+
+    try:
+        deleted = sheets.delete_transaction(transaction_id)
+        if deleted:
+            await update.message.reply_text(f"✅ Deleted transaction {transaction_id}")
+        else:
+            await update.message.reply_text(
+                f"❌ No transaction found with ID '{transaction_id}'.\n\n"
+                f"Use /today or /month to see your transactions."
+            )
+    except Exception as e:
+        logger.error("Error deleting transaction: %s", e)
+        await update.message.reply_text("❌ Couldn't delete the transaction. Please try again.")
 
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

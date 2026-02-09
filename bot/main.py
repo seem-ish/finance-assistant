@@ -25,6 +25,7 @@ from bot.handlers import (
     budget_command,
     delbill_command,
     delbudget_command,
+    delete_command,
     help_command,
     month_command,
     setbudget_command,
@@ -93,6 +94,7 @@ def main() -> None:
     app.add_handler(CommandHandler("syncgmail", syncgmail_command))
     app.add_handler(CommandHandler("synccalendar", synccalendar_command))
     app.add_handler(CommandHandler("ask", ask_command))
+    app.add_handler(CommandHandler("delete", delete_command))
 
     # Catch-all handlers (must be registered last)
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
