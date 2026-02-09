@@ -154,6 +154,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "`/delbudget <category>`\n\n"
         "*Gmail:*\n"
         "`/syncgmail` — Scan Gmail for receipts & statements\n\n"
+        "*Calendar:*\n"
+        "`/synccalendar` — Sync bills to Google Calendar\n\n"
         "💡 Category is auto-detected from your description",
         parse_mode=ParseMode.MARKDOWN,
     )
@@ -378,11 +380,37 @@ async def addbill_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             user=user,
         )
         currency = settings.currency_symbol
-        await update.message.reply_text(
+        msg = (
             f"✅ Added bill: {name} — {currency}{amount:,.2f} "
             f"due on day {due_day} (monthly)\n"
             f"🆔 {bill_id}"
         )
+
+        # Auto-create calendar event if enabled
+        if settings.calendar_sync_enabled:
+            try:
+                from services.bill_tracker import get_next_due_date
+                from services.calendar import CalendarService
+
+                cal = CalendarService(
+                    credentials_file=settings.gmail_oauth_credentials_file,
+                    token_file=settings.calendar_token_file,
+                    calendar_id=settings.calendar_id,
+                )
+                if cal.authenticate():
+                    due_date = get_next_due_date(due_day)
+                    event_id = cal.create_bill_event(
+                        name=name,
+                        amount=amount,
+                        due_date=due_date,
+                        category=category,
+                    )
+                    if event_id:
+                        msg += "\n📅 Calendar event created"
+            except Exception as e:
+                logger.error("Failed to create calendar event: %s", e)
+
+        await update.message.reply_text(msg)
     except InvalidDataError as e:
         await update.message.reply_text(f"❌ {e}")
     except Exception as e:
@@ -595,6 +623,63 @@ async def syncgmail_command(
     except Exception as e:
         logger.error("Error in Gmail sync: %s", e)
         await update.message.reply_text("❌ Gmail sync failed. Check logs for details.")
+
+
+async def synccalendar_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /synccalendar — sync all bills to Google Calendar."""
+    settings = context.bot_data["settings"]
+    sheets = context.bot_data["sheets"]
+    user = get_authorized_user(update, settings)
+    if user is None:
+        return
+
+    if not settings.calendar_sync_enabled:
+        await update.message.reply_text(
+            "❌ Calendar sync is not enabled.\n\n"
+            "Run `python -m scripts.setup_calendar` to set up, "
+            "then set `CALENDAR_SYNC_ENABLED=true` in your .env file.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    await update.message.reply_text("📅 Syncing bills to Google Calendar...")
+
+    try:
+        from services.calendar import CalendarService, sync_bills_to_calendar
+
+        cal = CalendarService(
+            credentials_file=settings.gmail_oauth_credentials_file,
+            token_file=settings.calendar_token_file,
+            calendar_id=settings.calendar_id,
+        )
+        if not cal.authenticate():
+            await update.message.reply_text(
+                "❌ Calendar authentication failed. Run `python -m scripts.setup_calendar` to re-authenticate.",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        results = sync_bills_to_calendar(cal, sheets, user=user)
+
+        lines = ["📅 *Calendar Sync Complete*\n"]
+        if results["created"]:
+            lines.append(f"✅ {results['created']} bill events created")
+        if results["existing"]:
+            lines.append(f"⏭️ {results['existing']} already on calendar")
+        if results["errors"]:
+            lines.append(f"⚠️ {results['errors']} errors")
+        if not any(results.values()):
+            lines.append("No active bills to sync.")
+
+        await update.message.reply_text(
+            "\n".join(lines), parse_mode=ParseMode.MARKDOWN
+        )
+
+    except Exception as e:
+        logger.error("Error in Calendar sync: %s", e)
+        await update.message.reply_text("❌ Calendar sync failed. Check logs for details.")
 
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

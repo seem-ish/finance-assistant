@@ -58,6 +58,18 @@ class Settings(BaseSettings):
         default=4, description="Hours between automatic Gmail scans"
     )
 
+    # Google Calendar Integration
+    calendar_token_file: str = Field(
+        default="config/calendar_token.json",
+        description="Stored OAuth2 token for Google Calendar",
+    )
+    calendar_id: str = Field(
+        default="primary", description="Google Calendar ID to sync bills to"
+    )
+    calendar_sync_enabled: bool = Field(
+        default=False, description="Enable Calendar sync (requires OAuth2 setup)"
+    )
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

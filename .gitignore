@@ -3,6 +3,7 @@
 config/google_credentials.json
 config/gmail_oauth_credentials.json
 config/gmail_token.json
+config/calendar_token.json
 
 # Python
 __pycache__/

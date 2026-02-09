@@ -264,3 +264,43 @@ async def sync_gmail_scheduled(context: ContextTypes.DEFAULT_TYPE) -> None:
 
     except Exception as e:
         logger.error("Gmail scheduled sync failed: %s", e)
+
+
+async def sync_calendar_scheduled(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Scheduled Calendar sync — sync all active bills to Google Calendar."""
+    settings = context.bot_data["settings"]
+    if not settings.calendar_sync_enabled:
+        return
+
+    sheets = context.bot_data["sheets"]
+
+    try:
+        from services.calendar import CalendarService, sync_bills_to_calendar
+
+        cal = CalendarService(
+            credentials_file=settings.gmail_oauth_credentials_file,
+            token_file=settings.calendar_token_file,
+            calendar_id=settings.calendar_id,
+        )
+        if not cal.authenticate():
+            logger.error("Calendar authentication failed during scheduled sync")
+            return
+
+        results = sync_bills_to_calendar(cal, sheets, user="user1")
+
+        if results["created"] > 0:
+            chat_id = settings.telegram_user1_id
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"📅 Calendar auto-sync: {results['created']} new bill events created",
+            )
+
+        logger.info(
+            "Calendar sync complete: %d created, %d existing, %d errors",
+            results["created"],
+            results["existing"],
+            results["errors"],
+        )
+
+    except Exception as e:
+        logger.error("Calendar scheduled sync failed: %s", e)

@@ -22,6 +22,7 @@ from bot.handlers import (
     month_command,
     setbudget_command,
     start_command,
+    synccalendar_command,
     syncgmail_command,
     today_command,
     upcoming_command,
@@ -33,6 +34,7 @@ from bot.scheduled_tasks import (
     send_daily_summary,
     send_monthly_summary,
     send_weekly_summary,
+    sync_calendar_scheduled,
     sync_gmail_scheduled,
 )
 from config.settings import get_settings
@@ -82,6 +84,7 @@ def main() -> None:
     app.add_handler(CommandHandler("setbudget", setbudget_command))
     app.add_handler(CommandHandler("delbudget", delbudget_command))
     app.add_handler(CommandHandler("syncgmail", syncgmail_command))
+    app.add_handler(CommandHandler("synccalendar", synccalendar_command))
 
     # Catch-all handlers (must be registered last)
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
@@ -131,6 +134,19 @@ def main() -> None:
         )
     else:
         logger.info("Gmail sync disabled (set GMAIL_SYNC_ENABLED=true to enable)")
+
+    # Schedule Calendar sync
+    if settings.calendar_sync_enabled:
+        tz = pytz.timezone(settings.timezone)
+        cal_time = datetime.time(hour=settings.daily_summary_hour, tzinfo=tz)
+        app.job_queue.run_daily(
+            sync_calendar_scheduled,
+            time=cal_time,
+            name="calendar_sync",
+        )
+        logger.info("Calendar sync scheduled daily")
+    else:
+        logger.info("Calendar sync disabled (set CALENDAR_SYNC_ENABLED=true to enable)")
 
     # Start polling for messages
     logger.info("Starting Telegram bot...")
