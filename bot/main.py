@@ -4,8 +4,10 @@ Run the bot:
     python -m bot.main
 """
 
+import datetime
 import logging
 
+import pytz
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
@@ -25,6 +27,11 @@ from bot.handlers import (
     unknown_command,
     unknown_text,
     week_command,
+)
+from bot.scheduled_tasks import (
+    send_daily_summary,
+    send_monthly_summary,
+    send_weekly_summary,
 )
 from config.settings import get_settings
 from services.categorizer import Categorizer
@@ -76,6 +83,37 @@ def main() -> None:
     # Catch-all handlers (must be registered last)
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_text))
+
+    # Schedule automatic summaries
+    if settings.auto_summaries_enabled:
+        tz = pytz.timezone(settings.timezone)
+        summary_time = datetime.time(hour=settings.daily_summary_hour, tzinfo=tz)
+
+        app.job_queue.run_daily(
+            send_daily_summary,
+            time=summary_time,
+            name="daily_summary",
+        )
+        app.job_queue.run_daily(
+            send_weekly_summary,
+            time=summary_time,
+            days=(settings.weekly_summary_day,),
+            name="weekly_summary",
+        )
+        app.job_queue.run_monthly(
+            send_monthly_summary,
+            when=summary_time,
+            day=1,
+            name="monthly_summary",
+        )
+        logger.info(
+            "Auto summaries scheduled: daily at %s %s, weekly on day %d, monthly on 1st",
+            settings.daily_summary_hour,
+            settings.timezone,
+            settings.weekly_summary_day,
+        )
+    else:
+        logger.info("Auto summaries disabled")
 
     # Start polling for messages
     logger.info("Starting Telegram bot...")

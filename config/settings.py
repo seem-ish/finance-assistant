@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     weekly_summary_day: int = Field(
         default=0, description="Day for weekly summary (0=Monday)"
     )
+    auto_summaries_enabled: bool = Field(
+        default=True, description="Enable automatic daily/weekly/monthly summaries"
+    )
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
