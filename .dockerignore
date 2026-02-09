@@ -1,0 +1,34 @@
+# Environment & secrets
+.env
+config/google_credentials.json
+config/gmail_oauth_credentials.json
+config/gmail_token.json
+config/calendar_token.json
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Development & testing
+tests/
+.pytest_cache/
+.coverage
+.ruff_cache/
+
+# Git
+.git/
+.gitignore
+
+# Data (local uploads)
+data/
+
+# IDE
+.vscode/
+.idea/
+
+# Docs
+*.md
+LICENSE

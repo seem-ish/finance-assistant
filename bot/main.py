@@ -2,10 +2,16 @@
 
 Run the bot:
     python -m bot.main
+
+For Cloud Run deployment, set the PORT environment variable.
+A lightweight HTTP health-check server runs alongside the bot.
 """
 
 import datetime
 import logging
+import os
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import pytz
 from telegram import Update
@@ -150,9 +156,36 @@ def main() -> None:
     else:
         logger.info("Calendar sync disabled (set CALENDAR_SYNC_ENABLED=true to enable)")
 
+    # Start health-check server for Cloud Run (responds to HTTP probes)
+    port = int(os.environ.get("PORT", "0"))
+    if port:
+        _start_health_server(port)
+        logger.info("Health-check server listening on port %d", port)
+
     # Start polling for messages
     logger.info("Starting Telegram bot...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    """Minimal HTTP handler for Cloud Run health checks."""
+
+    def do_GET(self):  # noqa: N802
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"ok")
+
+    def log_message(self, format, *args):  # noqa: A002
+        """Suppress default request logging to keep logs clean."""
+        pass
+
+
+def _start_health_server(port: int) -> None:
+    """Start a background HTTP server for health checks."""
+    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
 
 
 if __name__ == "__main__":
