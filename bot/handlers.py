@@ -11,7 +11,7 @@ import logging
 from datetime import date, timedelta
 from typing import Optional
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
@@ -108,6 +108,37 @@ def calculate_summary(df, currency_symbol: str) -> str:
     return "\n".join(lines)
 
 
+def format_transaction_list(df, currency_symbol: str) -> str:
+    """Format a transactions DataFrame into a detailed list of every transaction.
+
+    Returns a string with each transaction on its own line, sorted by date
+    (most recent first), plus a total at the bottom.
+    """
+    if df.empty:
+        return "No transactions found."
+
+    total = df["amount"].sum()
+    count = len(df)
+    txn_word = "transaction" if count == 1 else "transactions"
+
+    sorted_df = df.sort_values("date", ascending=False)
+
+    lines = []
+    for _, row in sorted_df.iterrows():
+        t_date = row["date"]
+        if hasattr(t_date, "strftime"):
+            date_str = t_date.strftime("%b %d")
+        else:
+            date_str = str(t_date)
+        lines.append(
+            f"  {date_str} — {currency_symbol}{row['amount']:.2f} — "
+            f"{row['category']} — {row['description']}"
+        )
+
+    header = f"💰 Total: {currency_symbol}{total:.2f} ({count} {txn_word})\n"
+    return header + "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Command handlers
 # ---------------------------------------------------------------------------
@@ -143,8 +174,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "`/delete <id>` — Remove a transaction\n\n"
         "*View Spending:*\n"
         "`/today` — Today's spending\n"
-        "`/week` — This week's spending\n"
-        "`/month` — This month's spending\n\n"
+        "`/week` — This week's summary\n"
+        "`/month` — This month's summary\n"
+        "`/weekall` — All transactions this week\n"
+        "`/monthall` — All transactions this month\n\n"
         "*Bills:*\n"
         "`/bills` — View all your bills\n"
         "`/upcoming` — Bills due in next 7 days\n"
@@ -291,6 +324,64 @@ async def month_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         summary = calculate_summary(df, settings.currency_symbol)
         header = f"📅 This Month ({today.strftime('%B %Y')})"
         await update.message.reply_text(f"{header}\n\n{summary}")
+
+    except Exception as e:
+        logger.error("Error fetching month's transactions: %s", e)
+        await update.message.reply_text(
+            "❌ Couldn't fetch this month's data. Please try again later."
+        )
+
+
+async def weekall_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /weekall — show every transaction this week."""
+    settings = context.bot_data["settings"]
+    sheets = context.bot_data["sheets"]
+    user = get_authorized_user(update, settings)
+    if user is None:
+        return
+
+    try:
+        today = date.today()
+        week_start = today - timedelta(days=today.weekday())
+        df = sheets.get_transactions(start_date=week_start, end_date=today, user=user)
+        details = format_transaction_list(df, settings.currency_symbol)
+        header = f"📋 All Transactions This Week ({week_start.strftime('%b %d')} — {today.strftime('%b %d')})"
+        msg = f"{header}\n\n{details}"
+
+        # Telegram has a 4096 char limit — split if needed
+        if len(msg) > 4000:
+            await update.message.reply_text(msg[:4000] + "\n\n... (truncated)")
+        else:
+            await update.message.reply_text(msg)
+
+    except Exception as e:
+        logger.error("Error fetching week's transactions: %s", e)
+        await update.message.reply_text(
+            "❌ Couldn't fetch this week's data. Please try again later."
+        )
+
+
+async def monthall_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /monthall — show every transaction this month."""
+    settings = context.bot_data["settings"]
+    sheets = context.bot_data["sheets"]
+    user = get_authorized_user(update, settings)
+    if user is None:
+        return
+
+    try:
+        today = date.today()
+        month_start = date(today.year, today.month, 1)
+        df = sheets.get_transactions(start_date=month_start, end_date=today, user=user)
+        details = format_transaction_list(df, settings.currency_symbol)
+        header = f"📋 All Transactions — {today.strftime('%B %Y')}"
+        msg = f"{header}\n\n{details}"
+
+        # Telegram has a 4096 char limit — split if needed
+        if len(msg) > 4000:
+            await update.message.reply_text(msg[:4000] + "\n\n... (truncated)")
+        else:
+            await update.message.reply_text(msg)
 
     except Exception as e:
         logger.error("Error fetching month's transactions: %s", e)
@@ -688,10 +779,11 @@ async def synccalendar_command(
 
 
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /delete — delete a transaction by ID.
+    """Handle /delete — search for a transaction and pick one to delete.
 
-    Format: /delete <transaction_id>
-    Example: /delete abc12345
+    Format: /delete <search term>
+    Example: /delete Starbucks
+    Example: /delete Whole Foods
     """
     settings = context.bot_data["settings"]
     sheets = context.bot_data["sheets"]
@@ -702,27 +794,97 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     args = context.args or []
     if not args:
         await update.message.reply_text(
-            "❌ Usage: `/delete <transaction_id>`\n\n"
-            "The transaction ID is shown when you add an expense with /add.\n"
-            "Use /today, /week, or /month to find transactions.",
+            "❌ Usage: `/delete <search term>`\n\n"
+            "Example: `/delete Starbucks`\n"
+            "Example: `/delete Whole Foods`\n\n"
+            "I'll find matching transactions and let you pick which to delete.",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
 
-    transaction_id = args[0]
+    search_term = " ".join(args).lower()
+    currency = settings.currency_symbol
+
+    try:
+        # Search recent transactions (last 90 days)
+        today = date.today()
+        start = today - timedelta(days=90)
+        df = sheets.get_transactions(start_date=start, end_date=today, user=user)
+
+        if df.empty:
+            await update.message.reply_text("No transactions found in the last 90 days.")
+            return
+
+        # Filter by search term in description (case-insensitive)
+        matches = df[df["description"].str.lower().str.contains(search_term, na=False)]
+
+        if matches.empty:
+            await update.message.reply_text(
+                f"No transactions matching '{search_term}' found.\n\n"
+                f"Try a different search term."
+            )
+            return
+
+        # Show up to 10 most recent matches as inline buttons
+        recent = matches.sort_values("date", ascending=False).head(10)
+
+        buttons = []
+        for _, row in recent.iterrows():
+            label = (
+                f"{row['date']} — {currency}{row['amount']:.2f} — "
+                f"{row['description']}"
+            )
+            # Truncate label if too long for button (Telegram max ~64 chars)
+            if len(label) > 60:
+                label = label[:57] + "..."
+            buttons.append(
+                [InlineKeyboardButton(label, callback_data=f"del:{row['id']}")]
+            )
+
+        # Add cancel button
+        buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="del:cancel")])
+
+        keyboard = InlineKeyboardMarkup(buttons)
+        await update.message.reply_text(
+            f"🗑️ Found {len(recent)} match(es) for '{search_term}'.\n"
+            f"Tap one to delete:",
+            reply_markup=keyboard,
+        )
+
+    except Exception as e:
+        logger.error("Error searching transactions: %s", e)
+        await update.message.reply_text("❌ Something went wrong. Please try again.")
+
+
+async def delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle inline button press for transaction deletion."""
+    query = update.callback_query
+    await query.answer()
+
+    settings = context.bot_data["settings"]
+    sheets = context.bot_data["sheets"]
+
+    data = query.data
+    if not data.startswith("del:"):
+        return
+
+    transaction_id = data[4:]  # Remove "del:" prefix
+
+    if transaction_id == "cancel":
+        await query.edit_message_text("❌ Cancelled — nothing deleted.")
+        return
 
     try:
         deleted = sheets.delete_transaction(transaction_id)
         if deleted:
-            await update.message.reply_text(f"✅ Deleted transaction {transaction_id}")
+            await query.edit_message_text(f"✅ Deleted transaction!")
         else:
-            await update.message.reply_text(
-                f"❌ No transaction found with ID '{transaction_id}'.\n\n"
-                f"Use /today or /month to see your transactions."
+            await query.edit_message_text(
+                f"❌ Transaction not found — it may have already been deleted."
             )
     except Exception as e:
         logger.error("Error deleting transaction: %s", e)
-        await update.message.reply_text("❌ Couldn't delete the transaction. Please try again.")
+        await query.edit_message_text("❌ Couldn't delete. Please try again.")
 
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

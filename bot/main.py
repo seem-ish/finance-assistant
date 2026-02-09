@@ -15,7 +15,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import pytz
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 from bot.handlers import (
     add_command,
@@ -25,9 +25,11 @@ from bot.handlers import (
     budget_command,
     delbill_command,
     delbudget_command,
+    delete_callback,
     delete_command,
     help_command,
     month_command,
+    monthall_command,
     setbudget_command,
     start_command,
     synccalendar_command,
@@ -37,6 +39,7 @@ from bot.handlers import (
     unknown_command,
     unknown_text,
     week_command,
+    weekall_command,
 )
 from bot.scheduled_tasks import (
     send_daily_summary,
@@ -84,6 +87,8 @@ def main() -> None:
     app.add_handler(CommandHandler("today", today_command))
     app.add_handler(CommandHandler("week", week_command))
     app.add_handler(CommandHandler("month", month_command))
+    app.add_handler(CommandHandler("weekall", weekall_command))
+    app.add_handler(CommandHandler("monthall", monthall_command))
     app.add_handler(CommandHandler("bills", bills_command))
     app.add_handler(CommandHandler("upcoming", upcoming_command))
     app.add_handler(CommandHandler("addbill", addbill_command))
@@ -95,6 +100,7 @@ def main() -> None:
     app.add_handler(CommandHandler("synccalendar", synccalendar_command))
     app.add_handler(CommandHandler("ask", ask_command))
     app.add_handler(CommandHandler("delete", delete_command))
+    app.add_handler(CallbackQueryHandler(delete_callback, pattern=r"^del:"))
 
     # Catch-all handlers (must be registered last)
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
