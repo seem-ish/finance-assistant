@@ -21,6 +21,9 @@ openpyxl==3.1.5                 # Excel file support
 # Scheduling & Notifications
 APScheduler==3.10.4             # Job scheduling for automated reminders
 
+# AI / LLM
+openai>=1.0.0                   # OpenAI API for natural language Q&A
+
 # Utilities
 python-dotenv==1.0.1            # Load environment variables from .env
 pydantic==2.10.1                # Data validation and settings

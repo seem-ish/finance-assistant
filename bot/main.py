@@ -14,6 +14,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from bot.handlers import (
     add_command,
     addbill_command,
+    ask_command,
     bills_command,
     budget_command,
     delbill_command,
@@ -85,6 +86,7 @@ def main() -> None:
     app.add_handler(CommandHandler("delbudget", delbudget_command))
     app.add_handler(CommandHandler("syncgmail", syncgmail_command))
     app.add_handler(CommandHandler("synccalendar", synccalendar_command))
+    app.add_handler(CommandHandler("ask", ask_command))
 
     # Catch-all handlers (must be registered last)
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))

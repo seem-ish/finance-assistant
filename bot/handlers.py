@@ -22,6 +22,7 @@ from services.bill_tracker import (
 )
 from services.budget_tracker import format_budget_status, get_budget_status
 from services.exceptions import DuplicateTransactionError, InvalidDataError
+from services.qa import answer_question
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "`/syncgmail` — Scan Gmail for receipts & statements\n\n"
         "*Calendar:*\n"
         "`/synccalendar` — Sync bills to Google Calendar\n\n"
+        "*Q&A:*\n"
+        "`/ask <question>` — Ask about your finances\n"
+        "Or just type a question directly!\n\n"
         "💡 Category is auto-detected from your description",
         parse_mode=ParseMode.MARKDOWN,
     )
@@ -692,13 +696,62 @@ async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await update.message.reply_text("❓ Unknown command. Use /help to see available commands.")
 
 
-async def unknown_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle plain text messages."""
+async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /ask — ask a natural language question about finances."""
     settings = context.bot_data["settings"]
+    sheets = context.bot_data["sheets"]
     user = get_authorized_user(update, settings)
     if user is None:
         return
 
+    question = " ".join(context.args or [])
+    if not question:
+        await update.message.reply_text(
+            "❓ Usage: `/ask <question>`\n\n"
+            "Example: `/ask How much did I spend on groceries this month?`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    await update.message.reply_text("🤔 Thinking...")
+
+    try:
+        response = answer_question(question, sheets, user, settings)
+        await update.message.reply_text(f"💬 {response}")
+    except Exception as e:
+        logger.error("Error in /ask command: %s", e)
+        await update.message.reply_text(
+            "❌ Something went wrong. Please try again later."
+        )
+
+
+async def unknown_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle plain text messages — Q&A if enabled, otherwise prompt to use /add."""
+    settings = context.bot_data["settings"]
+    sheets = context.bot_data["sheets"]
+    user = get_authorized_user(update, settings)
+    if user is None:
+        return
+
+    # If Q&A is enabled, treat plain text as a question
+    if settings.qa_enabled:
+        question = update.message.text.strip()
+        if not question:
+            return
+
+        await update.message.reply_text("🤔 Thinking...")
+
+        try:
+            response = answer_question(question, sheets, user, settings)
+            await update.message.reply_text(f"💬 {response}")
+        except Exception as e:
+            logger.error("Error in Q&A: %s", e)
+            await update.message.reply_text(
+                "❌ Something went wrong. Please try again later."
+            )
+        return
+
+    # Q&A disabled — show the original help message
     await update.message.reply_text(
         "💬 To add an expense, use:\n"
         "`/add <amount> <category> <description>`\n\n"

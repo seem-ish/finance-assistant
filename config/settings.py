@@ -58,6 +58,13 @@ class Settings(BaseSettings):
         default=4, description="Hours between automatic Gmail scans"
     )
 
+    # OpenAI / Q&A
+    openai_api_key: str = Field(default="", description="OpenAI API key for Q&A")
+    qa_enabled: bool = Field(
+        default=False, description="Enable natural language Q&A (requires OpenAI key)"
+    )
+    qa_model: str = Field(default="gpt-4o-mini", description="OpenAI model for Q&A")
+
     # Google Calendar Integration
     calendar_token_file: str = Field(
         default="config/calendar_token.json",
