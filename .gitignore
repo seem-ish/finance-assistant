@@ -1,6 +1,8 @@
 # Environment and secrets
 .env
 config/google_credentials.json
+config/gmail_oauth_credentials.json
+config/gmail_token.json
 
 # Python
 __pycache__/

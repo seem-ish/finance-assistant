@@ -209,3 +209,58 @@ async def send_monthly_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
 
         except Exception as e:
             logger.error("Error sending monthly summary to %s: %s", user_key, e)
+
+
+async def sync_gmail_scheduled(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Scheduled Gmail sync — scan last 24h for purchase receipts and statements."""
+    settings = context.bot_data["settings"]
+    if not settings.gmail_sync_enabled:
+        return
+
+    sheets = context.bot_data["sheets"]
+    categorizer = context.bot_data.get("categorizer")
+    users = _build_user_list(settings)
+
+    try:
+        from services.gmail import GmailService, sync_gmail
+
+        gmail = GmailService(
+            credentials_file=settings.gmail_oauth_credentials_file,
+            token_file=settings.gmail_token_file,
+        )
+        if not gmail.authenticate():
+            logger.error("Gmail authentication failed during scheduled sync")
+            return
+
+        # Only sync for user1 (Gmail is set up for one account)
+        user_key = "user1"
+        chat_id = settings.telegram_user1_id
+
+        results = sync_gmail(gmail, sheets, categorizer, user=user_key, days_back=1)
+
+        total_new = results["receipts_added"] + results["statements_imported"]
+        if total_new > 0:
+            lines = ["📧 *Gmail Auto-Sync*\n"]
+            if results["receipts_added"]:
+                lines.append(f"✅ {results['receipts_added']} receipts imported")
+            if results["statements_imported"]:
+                lines.append(
+                    f"✅ {results['statements_imported']} statement transactions"
+                )
+            if results["skipped"]:
+                lines.append(f"⏭️ {results['skipped']} duplicates skipped")
+
+            await context.bot.send_message(
+                chat_id=chat_id, text="\n".join(lines)
+            )
+
+        logger.info(
+            "Gmail sync complete: %d receipts, %d statements, %d skipped, %d errors",
+            results["receipts_added"],
+            results["statements_imported"],
+            results["skipped"],
+            results["errors"],
+        )
+
+    except Exception as e:
+        logger.error("Gmail scheduled sync failed: %s", e)

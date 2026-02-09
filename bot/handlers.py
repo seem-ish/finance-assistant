@@ -152,6 +152,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "`/budget` — Budget status this month\n"
         "`/setbudget <category> <limit>`\n"
         "`/delbudget <category>`\n\n"
+        "*Gmail:*\n"
+        "`/syncgmail` — Scan Gmail for receipts & statements\n\n"
         "💡 Category is auto-detected from your description",
         parse_mode=ParseMode.MARKDOWN,
     )
@@ -530,6 +532,69 @@ async def delbudget_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     except Exception as e:
         logger.error("Error deleting budget: %s", e)
         await update.message.reply_text("❌ Couldn't delete the budget. Please try again.")
+
+
+async def syncgmail_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /syncgmail — manually trigger Gmail scan."""
+    settings = context.bot_data["settings"]
+    sheets = context.bot_data["sheets"]
+    categorizer = context.bot_data.get("categorizer")
+    user = get_authorized_user(update, settings)
+    if user is None:
+        return
+
+    if not settings.gmail_sync_enabled:
+        await update.message.reply_text(
+            "❌ Gmail sync is not enabled.\n\n"
+            "Run `python -m scripts.setup_gmail` to set up Gmail integration, "
+            "then set `GMAIL_SYNC_ENABLED=true` in your .env file.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    await update.message.reply_text("🔄 Scanning Gmail (last 7 days)...")
+
+    try:
+        from services.gmail import GmailService, sync_gmail
+
+        gmail = GmailService(
+            credentials_file=settings.gmail_oauth_credentials_file,
+            token_file=settings.gmail_token_file,
+        )
+        if not gmail.authenticate():
+            await update.message.reply_text(
+                "❌ Gmail authentication failed. Run `python -m scripts.setup_gmail` to re-authenticate.",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        results = sync_gmail(
+            gmail, sheets, categorizer, user=user, days_back=7
+        )
+
+        lines = ["📧 *Gmail Sync Complete*\n"]
+        if results["receipts_added"]:
+            lines.append(f"✅ {results['receipts_added']} receipts imported")
+        if results["statements_imported"]:
+            lines.append(
+                f"✅ {results['statements_imported']} statement transactions imported"
+            )
+        if results["skipped"]:
+            lines.append(f"⏭️ {results['skipped']} duplicates skipped")
+        if results["errors"]:
+            lines.append(f"⚠️ {results['errors']} errors")
+        if not any(results.values()):
+            lines.append("No new transactions found.")
+
+        await update.message.reply_text(
+            "\n".join(lines), parse_mode=ParseMode.MARKDOWN
+        )
+
+    except Exception as e:
+        logger.error("Error in Gmail sync: %s", e)
+        await update.message.reply_text("❌ Gmail sync failed. Check logs for details.")
 
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

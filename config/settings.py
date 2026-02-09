@@ -42,6 +42,22 @@ class Settings(BaseSettings):
         default=True, description="Enable automatic daily/weekly/monthly summaries"
     )
 
+    # Gmail Integration
+    gmail_oauth_credentials_file: str = Field(
+        default="config/gmail_oauth_credentials.json",
+        description="OAuth2 client credentials for Gmail",
+    )
+    gmail_token_file: str = Field(
+        default="config/gmail_token.json",
+        description="Stored OAuth2 token for Gmail",
+    )
+    gmail_sync_enabled: bool = Field(
+        default=False, description="Enable Gmail scanning (requires OAuth2 setup)"
+    )
+    gmail_sync_interval_hours: int = Field(
+        default=4, description="Hours between automatic Gmail scans"
+    )
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

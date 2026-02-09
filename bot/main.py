@@ -22,6 +22,7 @@ from bot.handlers import (
     month_command,
     setbudget_command,
     start_command,
+    syncgmail_command,
     today_command,
     upcoming_command,
     unknown_command,
@@ -32,6 +33,7 @@ from bot.scheduled_tasks import (
     send_daily_summary,
     send_monthly_summary,
     send_weekly_summary,
+    sync_gmail_scheduled,
 )
 from config.settings import get_settings
 from services.categorizer import Categorizer
@@ -79,6 +81,7 @@ def main() -> None:
     app.add_handler(CommandHandler("budget", budget_command))
     app.add_handler(CommandHandler("setbudget", setbudget_command))
     app.add_handler(CommandHandler("delbudget", delbudget_command))
+    app.add_handler(CommandHandler("syncgmail", syncgmail_command))
 
     # Catch-all handlers (must be registered last)
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
@@ -114,6 +117,20 @@ def main() -> None:
         )
     else:
         logger.info("Auto summaries disabled")
+
+    # Schedule Gmail sync
+    if settings.gmail_sync_enabled:
+        app.job_queue.run_repeating(
+            sync_gmail_scheduled,
+            interval=settings.gmail_sync_interval_hours * 3600,
+            first=60,  # First run 60s after startup
+            name="gmail_sync",
+        )
+        logger.info(
+            "Gmail sync scheduled every %d hours", settings.gmail_sync_interval_hours
+        )
+    else:
+        logger.info("Gmail sync disabled (set GMAIL_SYNC_ENABLED=true to enable)")
 
     # Start polling for messages
     logger.info("Starting Telegram bot...")
