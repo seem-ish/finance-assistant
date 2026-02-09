@@ -16,6 +16,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.settings import get_settings  # noqa: E402
+from services.budget_tracker import get_budget_status  # noqa: E402
 from services.sheets import GoogleSheetsService  # noqa: E402
 
 
@@ -258,6 +259,34 @@ else:
         col1.metric("💰 Total Spent", format_currency(total_spent, currency))
         col2.metric("📝 Transactions", num_transactions)
         col3.metric("📊 Top Category", f"{top_icon} {top_category}")
+
+        # --- Budget progress bars (if budgets exist) ---
+        budget_statuses = get_budget_status(sheets, user="user1")
+        if budget_statuses:
+            st.divider()
+            st.subheader("📊 Budget Status")
+
+            for bs in budget_statuses:
+                cat_name = bs["category"]
+                spent = bs["spent"]
+                limit = bs["limit"]
+                percent = bs["percent_used"]
+
+                # Color: green < 70%, yellow 70-100%, red > 100%
+                if percent >= 100:
+                    bar_color = "🔴"
+                elif percent >= 80:
+                    bar_color = "⚠️"
+                else:
+                    bar_color = "✅"
+
+                label = (
+                    f"{bar_color} **{cat_name}**: "
+                    f"{format_currency(spent, currency)} / "
+                    f"{format_currency(limit, currency)} ({percent:.0f}%)"
+                )
+                st.markdown(label)
+                st.progress(min(percent / 100, 1.0))
 
         st.divider()
 

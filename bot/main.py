@@ -13,9 +13,12 @@ from bot.handlers import (
     add_command,
     addbill_command,
     bills_command,
+    budget_command,
     delbill_command,
+    delbudget_command,
     help_command,
     month_command,
+    setbudget_command,
     start_command,
     today_command,
     upcoming_command,
@@ -66,6 +69,9 @@ def main() -> None:
     app.add_handler(CommandHandler("upcoming", upcoming_command))
     app.add_handler(CommandHandler("addbill", addbill_command))
     app.add_handler(CommandHandler("delbill", delbill_command))
+    app.add_handler(CommandHandler("budget", budget_command))
+    app.add_handler(CommandHandler("setbudget", setbudget_command))
+    app.add_handler(CommandHandler("delbudget", delbudget_command))
 
     # Catch-all handlers (must be registered last)
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))

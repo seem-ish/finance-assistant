@@ -20,6 +20,7 @@ from services.bill_tracker import (
     format_upcoming_reminder,
     get_upcoming_bills,
 )
+from services.budget_tracker import format_budget_status, get_budget_status
 from services.exceptions import DuplicateTransactionError, InvalidDataError
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "`/upcoming` — Bills due in next 7 days\n"
         "`/addbill <name> <amount> <due_day>`\n"
         "`/delbill <name>` — Remove a bill\n\n"
+        "*Budgets:*\n"
+        "`/budget` — Budget status this month\n"
+        "`/setbudget <category> <limit>`\n"
+        "`/delbudget <category>`\n\n"
         "💡 Category is auto-detected from your description",
         parse_mode=ParseMode.MARKDOWN,
     )
@@ -424,6 +429,107 @@ async def delbill_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     except Exception as e:
         logger.error("Error deleting bill: %s", e)
         await update.message.reply_text("❌ Couldn't delete the bill. Please try again.")
+
+
+async def budget_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /budget — show budget status for current month."""
+    settings = context.bot_data["settings"]
+    sheets = context.bot_data["sheets"]
+    user = get_authorized_user(update, settings)
+    if user is None:
+        return
+
+    try:
+        statuses = get_budget_status(sheets, user=user)
+        message = format_budget_status(statuses, settings.currency_symbol)
+        await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        logger.error("Error fetching budget status: %s", e)
+        await update.message.reply_text(
+            "❌ Couldn't fetch budget status. Please try again later."
+        )
+
+
+async def setbudget_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /setbudget — set a monthly budget for a category.
+
+    Format: /setbudget <category> <limit>
+    Example: /setbudget Groceries 500
+    """
+    settings = context.bot_data["settings"]
+    sheets = context.bot_data["sheets"]
+    user = get_authorized_user(update, settings)
+    if user is None:
+        return
+
+    args = context.args or []
+    if len(args) < 2:
+        await update.message.reply_text(
+            "❌ Usage: `/setbudget <category> <limit>`\n\n"
+            "Example: `/setbudget Groceries 500`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    category = args[0].capitalize()
+    try:
+        limit = float(args[1])
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Limit must be a number.\n\n"
+            "Example: `/setbudget Groceries 500`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    try:
+        sheets.set_budget(category=category, monthly_limit=limit, user=user)
+        currency = settings.currency_symbol
+        await update.message.reply_text(
+            f"✅ Budget set: {category} — {currency}{limit:,.2f}/month"
+        )
+    except InvalidDataError as e:
+        await update.message.reply_text(f"❌ {e}")
+    except Exception as e:
+        logger.error("Error setting budget: %s", e)
+        await update.message.reply_text("❌ Something went wrong. Please try again.")
+
+
+async def delbudget_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /delbudget — delete a budget for a category.
+
+    Format: /delbudget <category>
+    Example: /delbudget Groceries
+    """
+    settings = context.bot_data["settings"]
+    sheets = context.bot_data["sheets"]
+    user = get_authorized_user(update, settings)
+    if user is None:
+        return
+
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "❌ Usage: `/delbudget <category>`\n\n"
+            "Example: `/delbudget Groceries`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    category = " ".join(args).capitalize()
+
+    try:
+        deleted = sheets.delete_budget(category=category, user=user)
+        if deleted:
+            await update.message.reply_text(f"✅ Deleted budget for {category}")
+        else:
+            await update.message.reply_text(
+                f"❌ No budget found for '{category}'.\n\n"
+                f"Use /budget to see your current budgets."
+            )
+    except Exception as e:
+        logger.error("Error deleting budget: %s", e)
+        await update.message.reply_text("❌ Couldn't delete the budget. Please try again.")
 
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

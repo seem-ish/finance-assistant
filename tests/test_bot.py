@@ -14,12 +14,15 @@ from bot.handlers import (
     add_command,
     addbill_command,
     bills_command,
+    budget_command,
     calculate_summary,
     delbill_command,
+    delbudget_command,
     get_authorized_user,
     get_user_name,
     month_command,
     parse_add_command,
+    setbudget_command,
     today_command,
     week_command,
 )
@@ -458,3 +461,110 @@ class TestDelBillCommand:
         response = update_user1.message.reply_text.call_args[0][0]
         assert "❌" in response
         assert "No bill found" in response
+
+
+# =========================================================================
+# /budget handler
+# =========================================================================
+
+
+class TestBudgetCommand:
+
+    @pytest.mark.asyncio
+    async def test_with_budgets(self, update_user1, mock_context):
+        mock_context.bot_data["sheets"].get_budgets.return_value = pd.DataFrame(
+            [{"category": "Groceries", "monthly_limit": 500, "user": "user1"}]
+        )
+        mock_context.bot_data["sheets"].get_transactions.return_value = pd.DataFrame(
+            [{"amount": 200, "category": "Groceries"}]
+        )
+
+        await budget_command(update_user1, mock_context)
+
+        response = update_user1.message.reply_text.call_args[0][0]
+        assert "Groceries" in response
+        assert "█" in response
+
+    @pytest.mark.asyncio
+    async def test_empty_budgets(self, update_user1, mock_context):
+        mock_context.bot_data["sheets"].get_budgets.return_value = pd.DataFrame(
+            columns=["category", "monthly_limit", "user"]
+        )
+
+        await budget_command(update_user1, mock_context)
+
+        response = update_user1.message.reply_text.call_args[0][0]
+        assert "No budgets" in response
+
+
+# =========================================================================
+# /setbudget handler
+# =========================================================================
+
+
+class TestSetBudgetCommand:
+
+    @pytest.mark.asyncio
+    async def test_success(self, update_user1, mock_context):
+        mock_context.args = ["Groceries", "500"]
+
+        await setbudget_command(update_user1, mock_context)
+
+        mock_context.bot_data["sheets"].set_budget.assert_called_once_with(
+            category="Groceries", monthly_limit=500.0, user="user1"
+        )
+        response = update_user1.message.reply_text.call_args[0][0]
+        assert "✅" in response
+        assert "Groceries" in response
+        assert "$500.00" in response
+
+    @pytest.mark.asyncio
+    async def test_invalid_format(self, update_user1, mock_context):
+        mock_context.args = ["Groceries"]  # missing limit
+
+        await setbudget_command(update_user1, mock_context)
+
+        mock_context.bot_data["sheets"].set_budget.assert_not_called()
+        response = update_user1.message.reply_text.call_args[0][0]
+        assert "❌" in response
+
+    @pytest.mark.asyncio
+    async def test_unauthorized_silent(self, update_stranger, mock_context):
+        mock_context.args = ["Groceries", "500"]
+
+        await setbudget_command(update_stranger, mock_context)
+
+        update_stranger.message.reply_text.assert_not_called()
+
+
+# =========================================================================
+# /delbudget handler
+# =========================================================================
+
+
+class TestDelBudgetCommand:
+
+    @pytest.mark.asyncio
+    async def test_success(self, update_user1, mock_context):
+        mock_context.args = ["Groceries"]
+        mock_context.bot_data["sheets"].delete_budget.return_value = True
+
+        await delbudget_command(update_user1, mock_context)
+
+        mock_context.bot_data["sheets"].delete_budget.assert_called_once_with(
+            category="Groceries", user="user1"
+        )
+        response = update_user1.message.reply_text.call_args[0][0]
+        assert "✅" in response
+        assert "Groceries" in response
+
+    @pytest.mark.asyncio
+    async def test_not_found(self, update_user1, mock_context):
+        mock_context.args = ["NonExistent"]
+        mock_context.bot_data["sheets"].delete_budget.return_value = False
+
+        await delbudget_command(update_user1, mock_context)
+
+        response = update_user1.message.reply_text.call_args[0][0]
+        assert "❌" in response
+        assert "No budget found" in response
